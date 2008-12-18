@@ -1,0 +1,141 @@
+Rabbitbal - reverse proxy for Rails (and beyond) on top of RabbitMQ
+Based on Nanite by ezmobius http://github.com/ezmobius/nanite/tree/master
+
+=================================================
+
+* Introduction
+
+Reverse proxy is a system that sits near web servers, between them and the
+user. Traditional HTTP-based reverse proxies work like this (arrow indicates
+direction of TCP connection and points to a tcp server):
+
+                      --http---------> WEB SERVER 1
+                      |
+USER --http--> REVERSE PROXY --http--> WEB SERVER 2
+                      |
+                      --http---------> WEB SERVER 3
+
+
+Rabbitbal works like this:
+
+                                      |--amqp-------- WEB SERVER 1
+                                      v
+USER --http--> RABBITBAL --amqp--> RABBITMQ <--amqp-- WEB SERVER 2
+                                      ^
+                                      |--amqp-------- WEB SERVER 3
+
+Rabbitbal is written in Ruby, and was inspired by Nanite project (see below).
+
+* Benefits of AMQP-based reverse proxy over traditional HTTP-based one
+
+In no particular order:
+
+1) Model where workers fetch work as fast as they can (each going at
+its own pace) in theory should provide more efficient load balancing
+than a model where proxy assigns work based on certain criteria;
+methods based on round robin, arbitrary weights or least connections
+become simply unnecessary.
+
+2) RabbitMQ broker implements intelligent failover out of the box -
+if a web server disconnects before ack'ing,
+the request will be automagically requeued for another server; all in all,
+RabbitMQ is way smarter than a bunch of low level TCP connections.
+
+3) Enhanced security of actual web servers - servers behind Rabbitbal
+do not need inbound connectivity, they only need to be able to establish
+an outgoing connection to RabbitMQ broker(s).
+
+4) Rabbitbal does not need to know IPs or have direct connectivity into its
+web servers (use case: Amazon EC2 without Elastic IPs)
+
+5) Using Duplication pattern of RabbitMQ (see Resources below), you could
+be reading requests and responses off of the same broker in real time
+(access log aggregation, double-entry book keeping, logging, bot detection)
+
+6) You could relatively easily have one request go to more than 1 web server
+
+7) Add capacity as often and as much as you like - rabbitbal won't even know
+
+8) By slightly readjusting mapping between queues and URIs, you could
+add or remove capacity per URI if needed
+
+9) TCP overhead savings compared with HTTP proxies (AMQP uses persistent TCP
+connections)
+
+* Concerns you need to be aware of
+
+1) Speed of the entire stack may be a question mark,
+  especially under load (not tested thoroughly)
+2) Rabbitbal by itself can not serve static content
+3) RabbitMQ broker is an additional moving part compared to HTTP proxies
+4) Not tested under serious loads
+5) Proof-of-concept status
+6) Potential issues with persistent TCP connections when deployed over WAN
+
+* Rabbitbal vs Nanite
+
+Nanite is a "self assembling fabric of ruby daemons." It is meant to be
+generic and extensible. In this sense, Rabbitbal is a tiny subset of
+Nanite's functionality because it supports a single use case - reverse
+proxy.
+
+On the other hand, Nanite currently uses application level routing
+logic (implemented in mappers) - it maintains a list of workers and
+decides which worker gets which job, all on the application level based 
+on inputs from developer. Mappers get pings from workers, maintain
+a list of available workers and manage this list if a worker does
+not send a ping, etc.
+
+Rabbitbal, on the contrary, relies on RabbitMQ broker to do all
+routing, handling client failover, keeping track of workers, etc.
+
+Because Rabbitbal implements a fraction of functionality compared to
+Nanite, its code is much shorter. Almost all coding ideas and techniques
+however were taken straight from Nanite codebase.
+
+* License
+
+Apache License, Version 2.0 (same license as Nanite)
+
+* Usage
+
+0. Prerequisites: rabbitmq, tmm1-amqp, raggi-thin (see a note inside
+   rabbitbal.ru borrowed from nanite), rails
+1. Start rabbitmq broker
+2. Edit broker connection settings in rabbitbal.ru and rabbitbal_rails.rb 
+3. on frontend (starts on port 4000): thin -R rabbitbal.ru -p 4000 start
+4. on backend: rabbitbal_rails.rb /path/to/rails_app
+5. repeat step 4 as many times as you want on as many machines as you have
+
+* Tests that passed
+- I ran generic rails app (rails ./rails) and it worked
+- I ran http://elasticserver.com codebase (this is where I work)
+  on Rabbitbal and it worked
+
+* Resources
+- Wikipedia on reverse proxies http://en.wikipedia.org/wiki/Reverse_proxy
+- rabbitmq http://rabbitmq.com
+- tmm1-amqp http://github.com/tmm1/amqp/tree/master
+- nanite http://github.com/ezmobius/nanite/tree/master
+- My RabbitMQ intro slides
+  http://www.slideshare.net/somic/introduction-to-amqp-messaging-with-rabbitmq
+- blog by Ben Hood of RabbitMQ core team http://hopper.squarespace.com/blog/
+- RabbitMQ Offsite FAQ http://lettuce.squarespace.com/faq/
+- My blog post on RabbitMQ patterns
+  http://somic.org/2008/11/11/using-rabbitmq-beyond-queueing/
+
+* Naming
+
+Rabbitbal is named after perlbal http://www.danga.com/perlbal/
+
+* TODO
+
+- Test under load
+- Test under heavy load
+- Test correct AMQP functionality
+- Get rid of MQ::Queue monkey patch
+
+* Author
+
+Dmitriy Samovskiy, http://somic.org
+
