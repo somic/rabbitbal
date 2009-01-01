@@ -5,6 +5,7 @@ require 'thin'
 require 'json'
 require 'sha1'
 require 'base64'
+require 'yaml'
 
 # from Nanite http://github.com/ezmobius/nanite/tree/master/nanite.ru
 #
@@ -18,24 +19,12 @@ require 'base64'
 # thin -R rabbitbal.ru -p 4000 start
 #
  
-# requests are sent to topic exchange defined in EXCHANGE,
-# with routing_key which corresponds to URI:
-# "/" -> "request"
-# "/settings" -> "request.settings"
-# "/order/details/45" -> "request.order.details.45"
-#
-# each request gets a unique ID
-#
-# responses are sent to topic exchange defined in EXCHANGE,
-# routing key "response.#{@identity}.request_unique_id"
-#
+# see rabbitbal.yml for mapping from Rack env hash to AMQP routing keys.
+# each request gets a unique ID.
+# responses are sent to topic exchange defined in yaml config file,
+# routing key "response.#{@identity}.request_unique_id".
 
-EXCHANGE = 'rabbitbal'
-MAX_REQUEST_ID = 99999999
-TIMEOUT = 15
-RABBITMQ_SERVER = '127.0.0.1'
-RABBITMQ_USER = 'guest'
-RABBITMQ_PASS = 'guest'
+RABBITBAL_YAML = 'rabbitbal.yml'
 
 class Request
 
@@ -75,18 +64,23 @@ class RabbitbalApp
   
   AsyncResponse = [-1, {}, []].freeze
 
-  attr_reader :amq, :identity
+  attr_reader :amq, :identity, :config
 
   def setup_response_queue
-    AMQP.start :host => RABBITMQ_SERVER,
-               :user => RABBITMQ_USER,
-               :pass => RABBITMQ_PASS
+    # FIXME
+    AMQP.start :host => $rabbitbal_config[:brokers][0][0],
+               :port => $rabbitbal_config[:brokers][0][1],
+               :user => $rabbitbal_config[:user],
+               :pass => $rabbitbal_config[:pass],
+               :insist => true
     @amq = MQ.new
     @identity = SHA1.sha1("#{`hostname`} #{$$} #{Time.now} #{rand(0xFFFFF)}")
     @outstanding = Hash.new
-    @amq.queue("read_responses_#{@identity}", :exclusive => true
-      ).bind(amq.topic(EXCHANGE), :key => "response.#{@identity}.#"
-      ).subscribe(:no_ack => true) { |info, data|
+
+    @queue = @amq.queue("read_responses_#{@identity}", :exclusive => true)
+    @queue.bind(amq.topic($rabbitbal_config[:exchange]),
+                :key => "response.#{@identity}.#").subscribe(
+                :no_ack => true) { |info, data|
         request_id = info.routing_key.split(/\./)[-1].to_i
         blk = @outstanding.delete(request_id)
         if blk
@@ -107,9 +101,10 @@ class RabbitbalApp
 
   def rabbitbal_request(req, options={}, &blk)
     @outstanding[req.request_id] = blk
-    amq.topic(EXCHANGE).publish(req.to_json, :key => req.key,
-        :immediate => true)
-    EM.add_timer(options[:timeout]) {
+    amq.topic($rabbitbal_config[:exchange]).publish(
+      req.to_json, :key => req.key, :immediate => true)
+
+    EM.add_timer($rabbitbal_config[:timeout]) {
       blk = @outstanding.delete(req.request_id)
       if blk
         puts "#{Time.now} [#{req.request_id}] timeout"
@@ -121,15 +116,16 @@ class RabbitbalApp
   def call(env)
     setup_response_queue unless @response_queue_initialized
     @request_id += 1
-    @request_id %= MAX_REQUEST_ID
+    @request_id %= $rabbitbal_config[:max_request_id]
     req = Request.new(env, @identity, @request_id)
     puts "#{Time.now} [#{req.request_id}] received. uri=#{req.request_uri}"
       
-    rabbitbal_request(req, :timeout => TIMEOUT) do |response|
+    rabbitbal_request(req) do |response|
       if response
         req.async_callback.call response
       else
-        req.async_callback.call [500, {'Content-Type' => 'text/html'}, "Request Timeout"]
+        req.async_callback.call [
+          500, {'Content-Type' => 'text/html'}, "Request Timeout"]
       end    
     end
     AsyncResponse
@@ -137,5 +133,6 @@ class RabbitbalApp
 
 end
 
+$rabbitbal_config = YAML.load_file(RABBITBAL_YAML)
 run RabbitbalApp.new
 

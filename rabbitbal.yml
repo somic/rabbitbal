@@ -1,0 +1,56 @@
+---
+# array of rabbitmq brokers [host,port]
+# as of now, only the first one is used
+# in the future, rabbitbal will try to reconnect and will try all from list
+:brokers:
+- - 127.0.0.1
+  - 5672
+- - 127.0.0.1
+  - 5672
+
+# general settings - broker creds, amqp exchange to use, timeout
+:user: guest
+:pass: guest
+:exchange: rabbitbal
+:timeout: 15
+:max_request_id: 99999999
+
+# set type of routing to use
+# :topic - each request is published with "request.dot.separated.uri"
+#   (for example, "/" -> "request"; "/app/app1" -> "request.app.app1").
+#   workers read requests from a single "requests" queue;
+#   :routing is not needed #   for this type
+# :table - create routing keys based on array of rules that match
+#   against Rack env keys (see below); in this case, there will
+#   multiple queues, each request will end up in one queue, workers
+#   can bind to all, several or a single queue
+:routing_type: :table
+
+# :routing element is required only for routing_type :table
+#
+# routing table to determine which routing_key to use when publishing.
+# each entry is a hash, entries are tried in order until a match is found.
+# keys are keys from Rack env hash, values are usually strings or regexps.
+# actual routing key will be built as "request." + hash["key"].
+# AMQP topic exchange is used, therefore value of key can be "word1" or
+#   "word1.word2.word3".
+# If no match is found, request will be sent with routing_key "request".
+# Routing hashes use strings for Rack keys (which correspond to
+#   HTTP request headers) and symbols for all other keys.
+#
+# For example, to publish all requests as "request.all", use
+# :routing:
+# - :key: all
+#
+:routing:
+- SERVER_NAME: localhost
+  HTTP_USER_AGENT: !ruby/regexp /wget/i
+  :key: from_cron
+
+- REQUEST_URI: !ruby/regexp /^\\/app1\\//
+  :key: app.app1
+
+- REQUEST_URI: !ruby/regexp /^\\/app2\\//
+  :key: app.app2
+
+
