@@ -28,6 +28,8 @@ RABBITBAL_YAML = 'rabbitbal.yml'
 
 class Request
 
+  ROUTING_KEY_BASE = "request"
+
   attr_reader :async_callback
 
   def initialize(env, identity, request_id)
@@ -45,11 +47,39 @@ class Request
     @hash.to_json
   end
 
-  def key
-    @key ||= "request." + @hash['REQUEST_URI'].split(/\?/)[0].sub(
+  def key_for_routing_type_topic
+    # REQUEST_URI-to-routing_key mapping:
+    # / -> request
+    # /app/new -> request.app.new
+    k = ROUTING_KEY_BASE
+    unless @hash['REQUEST_URI'] =~ /^\/+$/
+      k += "." + @hash['REQUEST_URI'].split(/\?/)[0].sub(
                     /^\//, '').gsub(/\./, '_').gsub(/\/+/, '.')
+    end
+    return k
   end
 
+  def key_for_routing_type_table
+    # REQUEST_URI-to-routing_key mapping based on :routing element in
+    # rabbitbal.yml
+    $rabbitbal_config[:routing].each { |h|
+      m = h.reject { |k,v| 
+        k.is_a?(Symbol) || (v.is_a?(String) ? @hash[k] == v : @hash[k] =~ v) }
+      return "#{ROUTING_KEY_BASE}.#{h[:key]}" if m.empty?
+    }
+    return ROUTING_KEY_BASE
+  end
+
+  def key
+    return @key if @key
+    if $rabbitbal_config[:routing_type] == :table
+      @key = key_for_routing_type_table
+    else
+      @key = key_for_routing_type_topic
+    end
+    return @key
+  end
+    
   def request_uri
     @request_uri ||= @hash['REQUEST_URI']
   end
@@ -118,7 +148,8 @@ class RabbitbalApp
     @request_id += 1
     @request_id %= $rabbitbal_config[:max_request_id]
     req = Request.new(env, @identity, @request_id)
-    puts "#{Time.now} [#{req.request_id}] received. uri=#{req.request_uri}"
+    puts "#{Time.now} [#{req.request_id}] received: " +
+        "uri=#{req.request_uri} key=#{req.key}"
       
     rabbitbal_request(req) do |response|
       if response
@@ -134,5 +165,10 @@ class RabbitbalApp
 end
 
 $rabbitbal_config = YAML.load_file(RABBITBAL_YAML)
+unless $rabbitbal_config[:routing].nil? ||
+  $rabbitbal_config[:routing].respond_to?(:each)
+    raise ":routing is defined in #{RABBITBAL_YAML} but is not an Array"
+end
+
 run RabbitbalApp.new
 

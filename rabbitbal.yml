@@ -24,7 +24,7 @@
 #   against Rack env keys (see below); in this case, there will
 #   multiple queues, each request will end up in one queue, workers
 #   can bind to all, several or a single queue
-:routing_type: :table
+:routing_type: :topic
 
 # :routing element is required only for routing_type :table
 #
@@ -43,14 +43,17 @@
 # - :key: all
 #
 :routing:
+- :key: will_never_match
+  TESTME: foo
+
 - SERVER_NAME: localhost
   HTTP_USER_AGENT: !ruby/regexp /wget/i
   :key: from_cron
 
-- REQUEST_URI: !ruby/regexp /^\\/app1\\//
+- REQUEST_URI: !ruby/regexp /^\/app1\//
   :key: app.app1
 
-- REQUEST_URI: !ruby/regexp /^\\/app2\\//
+- REQUEST_URI: !ruby/regexp /^\/app2\//
   :key: app.app2
 
 
