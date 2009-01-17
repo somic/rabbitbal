@@ -19,19 +19,19 @@
 # :topic - each request is published with "request.dot.separated.uri"
 #   (for example, "/" -> "request"; "/app/app1" -> "request.app.app1").
 #   workers read requests from a single "requests" queue;
-#   :routing is not needed #   for this type
+#   :routing is not needed for this type
 # :table - create routing keys based on array of rules that match
 #   against Rack env keys (see below); in this case, there will
 #   multiple queues, each request will end up in one queue, workers
 #   can bind to all, several or a single queue
-:routing_type: :topic
+:routing_type: :table
 
 # :routing element is required only for routing_type :table
 #
 # routing table to determine which routing_key to use when publishing.
 # each entry is a hash, entries are tried in order until a match is found.
 # keys are keys from Rack env hash, values are usually strings or regexps.
-# actual routing key will be built as "request." + hash["key"].
+# actual routing key will be built as "request." + hash[:key].
 # AMQP topic exchange is used, therefore value of key can be "word1" or
 #   "word1.word2.word3".
 # If no match is found, request will be sent with routing_key "request".
