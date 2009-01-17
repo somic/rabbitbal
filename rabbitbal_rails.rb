@@ -7,6 +7,9 @@
 #                    [-c|--config /path/to/yml] \
 #                    [queue1 queue2 ...]
 #
+# Values of "queue1", "queue2", etc are from :key values under :routing
+# For example:
+# rabbitbal_rails.rb -r /my/railsapp app.app1 from_cron
 #
 # require activesupport before json to avoid to_json exceptions
 # `to_json': wrong argument type Hash (expected Data) (TypeError)
