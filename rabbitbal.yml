@@ -56,4 +56,5 @@
 - REQUEST_URI: !ruby/regexp /^\/app2\//
   :key: app.app2
 
+- :key: catchall
 

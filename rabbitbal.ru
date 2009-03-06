@@ -102,7 +102,8 @@ class RabbitbalApp
                :port => $rabbitbal_config[:brokers][0][1],
                :user => $rabbitbal_config[:user],
                :pass => $rabbitbal_config[:pass],
-               :insist => true
+               :insist => true,
+               :logging => false
     @amq = MQ.new
     @identity = SHA1.sha1("#{`hostname`} #{$$} #{Time.now} #{rand(0xFFFFF)}")
     @outstanding = Hash.new
